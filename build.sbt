@@ -38,4 +38,3 @@ lazy val `push-notifications-service` = project in file(".") enablePlugins Raml2
     )
   )
 )
-
