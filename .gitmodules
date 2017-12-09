@@ -7,3 +7,6 @@
 [submodule "api/apns-service-api"]
 	path = api/apns-service-api
 	url = https://github.com/hypertino/apns-service-api.git
+[submodule "travis"]
+	path = travis
+	url = git@github.com:hypertino/scala-travis-script.git
