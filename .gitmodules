@@ -1,0 +1,9 @@
+[submodule "api/push-notifications-service-api"]
+	path = api/push-notifications-service-api
+	url = https://github.com/hypertino/push-notifications-service-api.git
+[submodule "api/hyperstorage-service-api"]
+	path = api/hyperstorage-service-api
+	url = https://github.com/hypertino/hyperstorage-service-api.git
+[submodule "api/apns-service-api"]
+	path = api/apns-service-api
+	url = https://github.com/hypertino/apns-service-api.git
