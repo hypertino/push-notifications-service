@@ -14,7 +14,7 @@ object PayloadBuilder {
 
     override def visitObj(d: Obj): util.HashMap[String, Any] = {
       val hashMap = new util.HashMap[String, Any]()
-      d.v.foreach{ case (k, v) => hashMap.put(k, v) }
+      d.v.foreach{ case (k, v) => hashMap.put(k, v ~~ this) }
       hashMap
     }
 
