@@ -70,8 +70,7 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
         val payload = PayloadBuilder.buildApnsPayload(r.body)
 
         Task.gatherUnordered(tokens.map { token =>
-          // publishing regular request
-          hyperbus.publish(ApnsPost(ApnsNotification(token.token, token.appName, payload)))
+          hyperbus.ask(ApnsPost(ApnsNotification(token.token, token.appName, payload)))
         })
       }
     }.map { _ =>
