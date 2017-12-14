@@ -78,6 +78,26 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
     }
   }
 
+  def onUserNotificationsPost(implicit r: UserNotificationsPost): Task[Accepted[EmptyBody]] = {
+    hyperbus.ask(ContentGet(Db.notificationUserTokensPath(r.userId), filter = Some("platform = 'ios'"), perPage = Some(Int.MaxValue))).flatMap { case Ok(tokensBody: DynamicBody, headers: ResponseHeaders) =>
+      val tokens = tokensBody.content.toList.map(_.to[TokenId])
+
+      if (tokens.isEmpty) {
+        Task.unit
+      }else {
+        val payload = PayloadBuilder.buildApnsPayload(r.body)
+        Task.gatherUnordered(tokens.map { token =>
+          hyperbus.ask(ContentGet(Db.notificationTokenPath(token.tokenId))).flatMap { case Ok(tokenBody: DynamicBody, _) =>
+            val token = tokenBody.content.to[NotificationToken]
+            hyperbus.ask(ApnsPost(ApnsNotification(token.token, token.appName, payload)))
+          }
+        })
+      }
+    }.map { _ =>
+      Accepted(EmptyBody)
+    }
+  }
+
   @groupName("push-notifications-service")
   def onApnsBadDeviceTokensFeedPost(implicit r: ApnsBadDeviceTokensFeedPost): Future[Ack] =
     removeExistingDeviceToken(Db.notificationTokenPlatformTokenPath("ios", r.body.deviceToken))
