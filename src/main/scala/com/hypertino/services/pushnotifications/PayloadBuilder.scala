@@ -35,6 +35,10 @@ object PayloadBuilder {
       .setAlertTitle(pushNotification.notification.title)
       .setAlertBody(pushNotification.notification.body)
 
+    pushNotification.notification.badge.map { badge =>
+      builder.setBadgeNumber(badge)
+    }
+
     pushNotification.data.toMap.map { case (k, v) =>
       builder.addCustomProperty(k, v ~~ toPayloadVisitor)
     }
