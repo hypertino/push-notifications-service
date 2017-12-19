@@ -2,7 +2,7 @@ package com.hypertino.services.pushnotifications
 
 import java.lang
 
-import com.hypertino.binders.value.Obj
+import com.hypertino.binders.value.{Obj, Text}
 import com.hypertino.hyperbus.model.{Created, EmptyBody, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage.api.ContentGet
@@ -56,6 +56,8 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
 
     revU shouldBe 1
     userTokenValue.to[NotificationToken] shouldBe notificationToken
+
+    hyperStorageContent(Db.usersItemPath("user-1")) shouldBe (Text("user-1"), 1)
   }
 
   "PushNotificationsService" should "delete device token on TokenDelete" in {

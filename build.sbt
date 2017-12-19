@@ -2,7 +2,7 @@ scalaVersion := "2.11.12"
 
 lazy val `push-notifications-service` = project in file(".") enablePlugins Raml2Hyperbus settings (
   name := "push-notifications-service",
-  version := "0.2.1-SNAPSHOT",
+  version := "0.2.2-SNAPSHOT",
   organization := "com.hypertino",
   resolvers ++= Seq(
     Resolver.sonatypeRepo("public")

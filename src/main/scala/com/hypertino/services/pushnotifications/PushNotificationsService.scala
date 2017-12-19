@@ -43,11 +43,13 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
       .flatMap { _ =>
         hyperbus.ask(ContentPut(Db.notificationTokenPath(notificationToken.tokenId), DynamicBody(notificationToken.toValue)))
           .flatMap { response =>
-            // TODO: limit amount of user tokens to 5 or 10
-            hyperbus.ask(ContentPut(Db.notificationUserTokensItemPath(notificationToken.userId, notificationToken.tokenId), DynamicBody(notificationToken.toValue))).map { _ =>
-               response match {
-                case _: Created[_] => Created(EmptyBody)
-                case _: Ok[_] => Ok(EmptyBody)
+            hyperbus.ask(ContentPut(Db.usersItemPath(notificationToken.userId), DynamicBody(Obj.from("user_id" -> notificationToken.userId)))).flatMap { _ =>
+              // TODO: limit amount of user tokens to 5 or 10
+              hyperbus.ask(ContentPut(Db.notificationUserTokensItemPath(notificationToken.userId, notificationToken.tokenId), DynamicBody(notificationToken.toValue))).map { _ =>
+                response match {
+                  case _: Created[_] => Created(EmptyBody)
+                  case _: Ok[_] => Ok(EmptyBody)
+                }
               }
             }
           }
@@ -55,6 +57,22 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
   }
 
   def onTokenDelete(implicit r: TokenDelete): Task[ResponseBase] =  removeToken(r.tokenId).map { _ => NoContent(EmptyBody) }
+
+  def onNotificationsPost(implicit r: NotificationsPost): Task[Accepted[EmptyBody]] = {
+    hyperbus.ask(ContentGet(Db.usersPath(), perPage = Some(Int.MaxValue))).flatMap { case Ok(usersBody: DynamicBody, _)=>
+      val users = usersBody.content.toList.map(_.toMap).map(_("user_id").toString())
+
+      Task.gatherUnordered(users.map { userId =>
+        // TODO: payload build is called many times on this push notification
+        hyperbus.ask(UserNotificationsPost(userId, r.body)).onErrorHandle { t =>
+          logger.warn(s"Failed to send push notifications to user '$userId'", t)
+          Unit
+        }
+      })
+    }.map { _ =>
+      Accepted(EmptyBody)
+    }.onErrorHandle { case NotFound(_) => Accepted(EmptyBody) }
+  }
 
   def onUserNotificationsPost(implicit r: UserNotificationsPost): Task[Accepted[EmptyBody]] = {
     // take 5 last tokens
