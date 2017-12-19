@@ -1,19 +1,11 @@
 package com.hypertino.services.pushnotifications
 
-import java.lang
-
 import com.hypertino.binders.value.{Obj, Text}
-import com.hypertino.hyperbus.model.{Created, EmptyBody, NoContent, NotFound, Ok, ResponseBase}
-import com.hypertino.hyperbus.serialization.SerializationOptions
-import com.hypertino.hyperstorage.api.ContentGet
+import com.hypertino.hyperbus.model.{Created, NoContent, NotFound}
 import com.hypertino.services.apns.api.{ApnsBadDeviceTokensFeedPost, BadToken}
-import com.hypertino.services.hyperstorage.api.ViewGet
 import com.hypertino.services.pushnotifications.api._
-import monix.eval.Task
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.{FlatSpec, Matchers}
-
-import scala.concurrent.ExecutionContextExecutor
 
 class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Matchers with ScalaFutures with Eventually {
   start(
@@ -57,7 +49,7 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
     revU shouldBe 1
     userTokenValue.to[NotificationToken] shouldBe notificationToken
 
-    hyperStorageContent(Db.usersItemPath("user-1")) shouldBe (Text("user-1"), 1)
+    hyperStorageContent(Db.usersItemPath("user-1")) shouldBe (Obj.from("user_id" -> "user-1"), 1)
   }
 
   "PushNotificationsService" should "delete device token on TokenDelete" in {
@@ -109,21 +101,4 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
   }
 
   // TODO: HyperStorageMock does not support collections and views
-//  "PushNotificationsService" should "send push notification to user" in {
-//    // val apnsServiceMock = new ApnsServiceMock(apnsPostHandler = { implicit r => Task.now(Ok(EmptyBody)) })
-//    // val subscriptions = _hyperbus.subscribe(apnsServiceMock, apnsServiceMock.serviceLogger)
-//
-//    _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
-//      platform = Platforms.IOS,
-//      appName = "com.test-app",
-//      deviceToken = "test-device-token-1",
-//      userId = "user-2"
-//    ))).runAsync.futureValue shouldBe a[Created[_]]
-//
-//    val x = _hyperbus.ask(UserNotificationsPost("user-2", new PushNotification(Notification("test-title", "test-body"))))
-//      .runAsync
-//      .futureValue
-//
-//    // subscriptions.foreach(_.cancel())
-//  }
 }
