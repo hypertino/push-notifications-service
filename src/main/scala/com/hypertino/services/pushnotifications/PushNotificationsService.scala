@@ -8,9 +8,9 @@ import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperbus.subscribe.annotations.groupName
 import com.hypertino.service.control.api.Service
 import com.hypertino.services.apns.api.{ApnsBadDeviceTokensFeedPost, ApnsNotification, ApnsPost}
-import com.hypertino.services.hyperstorage.api.{ContentDelete, ContentGet, ContentPut, HyperStorageHeader}
-import com.hypertino.services.pushnotifications.api._
+import com.hypertino.services.hyperstorage.api._
 import com.hypertino.services.pushnotifications.TaskExtensions._
+import com.hypertino.services.pushnotifications.api._
 import com.typesafe.scalalogging.StrictLogging
 import monix.eval.Task
 import monix.execution.Ack.Continue
@@ -32,22 +32,19 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
   logger.info(s"${getClass.getName} is STARTED")
 
   def onTokenPut(implicit r: TokenPut): Task[ResponseBase] = {
-    val tokenIdFk = TokenId(r.tokenId)
+    val notificationToken = NotificationToken(r.tokenId,
+      r.body.platform,
+      r.body.appName,
+      r.body.deviceToken,
+      r.body.userId,
+      System.currentTimeMillis())
 
-    val deviceTokenPath = Db.notificationTokenPlatformTokenPath(r.body.platform, r.body.token)
-
-    createDeviceToken(tokenIdFk, deviceTokenPath)
+    createDeviceToken(notificationToken)
       .flatMap { _ =>
-        val notificationToken = NotificationToken(r.tokenId,
-          r.body.platform,
-          r.body.appName,
-          r.body.token,
-          r.body.userId,
-          System.currentTimeMillis())
-
         hyperbus.ask(ContentPut(Db.notificationTokenPath(notificationToken.tokenId), DynamicBody(notificationToken.toValue)))
           .flatMap { response =>
-            hyperbus.ask(ContentPut(Db.notificationUserTokensItemPath(notificationToken.userId, notificationToken.tokenId), DynamicBody(tokenIdFk.toValue))).map { _ =>
+            // TODO: limit amount of user tokens to 5 or 10
+            hyperbus.ask(ContentPut(Db.notificationUserTokensItemPath(notificationToken.userId, notificationToken.tokenId), DynamicBody(notificationToken.toValue))).map { _ =>
                response match {
                 case _: Created[_] => Created(EmptyBody)
                 case _: Ok[_] => Ok(EmptyBody)
@@ -59,62 +56,58 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
 
   def onTokenDelete(implicit r: TokenDelete): Task[ResponseBase] =  removeToken(r.tokenId).map { _ => NoContent(EmptyBody) }
 
-  def onNotificationsPost(implicit r: NotificationsPost): Task[Accepted[EmptyBody]] = {
-    // TODO: paging, other platforms
-    hyperbus.ask(ContentGet(Db.notificationTokensPath(), filter = Some("platform = 'ios'"), perPage = Some(Int.MaxValue))).flatMap { case Ok(tokensBody: DynamicBody, headers: ResponseHeaders) =>
-      val tokens = tokensBody.content.toList.map(_.to[NotificationToken])
-
-      if (tokens.isEmpty) {
-        Task.unit
-      }else {
-        val payload = PayloadBuilder.buildApnsPayload(r.body)
-
-        Task.gatherUnordered(tokens.map { token =>
-          hyperbus.ask(ApnsPost(ApnsNotification(token.token, token.appName, payload)))
-        })
-      }
-    }.map { _ =>
-      Accepted(EmptyBody)
-    }
-  }
-
   def onUserNotificationsPost(implicit r: UserNotificationsPost): Task[Accepted[EmptyBody]] = {
-    hyperbus.ask(ContentGet(Db.notificationUserTokensPath(r.userId), filter = Some("platform = 'ios'"), perPage = Some(Int.MaxValue))).flatMap { case Ok(tokensBody: DynamicBody, headers: ResponseHeaders) =>
-      val tokens = tokensBody.content.toList.map(_.to[TokenId])
+    // take 5 last tokens
+    hyperbus.ask(ContentGet(Db.notificationUserTokensPath(r.userId),
+      filter = Some("platform = 'ios'"),
+      perPage = Some(5),
+      sortBy = Some("-created_at"))).flatMap { case Ok(tokensBody: DynamicBody, headers: ResponseHeaders) =>
+        val tokens = tokensBody.content.toList.map(_.toMap)
 
-      if (tokens.isEmpty) {
-        Task.unit
-      }else {
-        val payload = PayloadBuilder.buildApnsPayload(r.body)
-        Task.gatherUnordered(tokens.map { token =>
-          hyperbus.ask(ContentGet(Db.notificationTokenPath(token.tokenId))).flatMap { case Ok(tokenBody: DynamicBody, _) =>
-            val token = tokenBody.content.to[NotificationToken]
-            hyperbus.ask(ApnsPost(ApnsNotification(token.token, token.appName, payload)))
-          }
-        })
-      }
-    }.map { _ =>
-      Accepted(EmptyBody)
-    }
+        logger.trace(s"User '${r.userId}' has at least ${tokens.size} device tokens")
+
+        if (tokens.isEmpty) {
+          Task.unit
+        }else {
+          val payload = PayloadBuilder.buildApnsPayload(r.body)
+          Task.gatherUnordered(tokens.map { token =>
+            hyperbus.ask(ContentGet(Db.notificationTokenPath(token("token_id").toString()))).flatMap { case Ok(tokenBody: DynamicBody, _) =>
+              val token = tokenBody.content.toMap
+              val appName = token("app_name").toString()
+              val deviceToken = getDeviceToken(token)
+
+              hyperbus.ask(ApnsPost(ApnsNotification(deviceToken, appName, payload)))
+            }
+          })
+        }
+      }.map { _ =>
+        Accepted(EmptyBody)
+      }.onErrorHandle { case NotFound(_) => Accepted(EmptyBody) }
   }
 
   @groupName("push-notifications-service")
   def onApnsBadDeviceTokensFeedPost(implicit r: ApnsBadDeviceTokensFeedPost): Future[Ack] =
-    removeExistingDeviceToken(Db.notificationTokenPlatformTokenPath("ios", r.body.deviceToken))
-      .map(_ => Continue).runAsync
+    removeExistingDeviceToken(Db.notificationTokenPlatformTokenPath(Platforms.IOS, r.body.deviceToken))
+      .map(_ => Continue)
+      .runAsync
 
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = Future {
     handlers.foreach(_.cancel())
     logger.info(s"${getClass.getName} is STOPPED")
   }
 
-  private def createDeviceToken(tokenId: TokenId, deviceTokenPath: String)(implicit mcx: MessagingContext): Task[ResponseBase] = Task.defer {
-    hyperbus.ask(ContentPut(deviceTokenPath, DynamicBody(tokenId.toValue), headers = Headers(HyperStorageHeader.IF_NONE_MATCH → "*")))
-  }.retryWhen { case _: PreconditionFailed[_] => removeExistingDeviceToken(deviceTokenPath) }
+  private def createDeviceToken(notificationToken: NotificationToken)(implicit mcx: MessagingContext): Task[ResponseBase] = {
+    val deviceTokenPath = Db.notificationTokenPlatformTokenPath(notificationToken.platform, notificationToken.deviceToken)
+
+    hyperbus.ask(ContentPut(deviceTokenPath, DynamicBody(notificationToken.toValue),
+      headers = Headers(HyperStorageHeader.IF_NONE_MATCH → "*"))) .retryWhen { case _: PreconditionFailed[_] =>
+        removeExistingDeviceToken(deviceTokenPath)
+      }
+  }
 
   private def removeExistingDeviceToken(deviceTokenPath: String)(implicit mcx: MessagingContext):Task[Any] =
     hyperbus.ask(ContentGet(deviceTokenPath))
-      .map { _.body.content.to[TokenId].tokenId }
+      .map { _.body.content.toMap("token_id").toString() }
       .flatMap { existingTokenId =>
         removeToken(existingTokenId)
       }
@@ -124,25 +117,29 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
 
     // TODO: check doc's revision
     hyperbus.ask(ContentGet(existingTokenPath))
-      .map { _.body.content.to[NotificationToken] }
+      .map { _.body.content.toMap }
       .flatMap { notificationToken =>
-        val deviceTokenPath = Db.notificationTokenPlatformTokenPath(notificationToken.platform, notificationToken.token)
+        val userId = notificationToken("user_id").toString()
+        val platform = notificationToken("platform").toString()
+        val deviceToken = getDeviceToken(notificationToken)
+
+        val deviceTokenPath = Db.notificationTokenPlatformTokenPath(platform, deviceToken)
 
         Task.zip3(
           hyperbus.ask(ContentDelete(deviceTokenPath)),
-          deleteUserTokenIfExists(Db.notificationUserTokensItemPath(notificationToken.userId, tokenId)),
-          deleteExistingTokenIfExists(existingTokenPath)
+          deleteIfExists(Db.notificationUserTokensItemPath(userId, tokenId)),
+          deleteIfExists(existingTokenPath)
         )
       }
   }
 
-  private def deleteUserTokenIfExists(userTokenPath: String)(implicit mcx: MessagingContext): Task[Boolean] =
-    hyperbus.ask(ContentDelete(userTokenPath))
-      .map { _ => true }
-      .onErrorRecover { case _: NotFound[_] => false }
+  private def getDeviceToken(notificationToken: scala.collection.Map[String, Value]): String = {
+    // 'token' was renamed to 'device_token'. So, if 'device_token' not found => fallback to 'token'
+    notificationToken.getOrElse("device_token", notificationToken("token")).toString()
+  }
 
-  private def deleteExistingTokenIfExists(existingTokenPath: String)(implicit mcx: MessagingContext): Task[Boolean] =
-    hyperbus.ask(ContentDelete(existingTokenPath))
+  private def deleteIfExists(path: String)(implicit mcx: MessagingContext): Task[Boolean] =
+    hyperbus.ask(ContentDelete(path))
       .map { _ => true }
       .onErrorRecover { case _: NotFound[_] => false }
 }
