@@ -92,7 +92,7 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
             hyperbus.ask(ContentGet(Db.notificationTokenPath(token("token_id").toString()))).flatMap { case Ok(tokenBody: DynamicBody, _) =>
               val token = tokenBody.content.toMap
               val appName = token("app_name").toString()
-              val deviceToken = getDeviceToken(token)
+              val deviceToken = token("device_token").toString()
 
               hyperbus.ask(ApnsPost(ApnsNotification(deviceToken, appName, payload)))
             }
@@ -139,7 +139,7 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
       .flatMap { notificationToken =>
         val userId = notificationToken("user_id").toString()
         val platform = notificationToken("platform").toString()
-        val deviceToken = getDeviceToken(notificationToken)
+        val deviceToken = notificationToken("device_token").toString()
 
         val deviceTokenPath = Db.notificationTokenPlatformTokenPath(platform, deviceToken)
 
@@ -149,11 +149,6 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
           deleteIfExists(existingTokenPath)
         )
       }
-  }
-
-  private def getDeviceToken(notificationToken: scala.collection.Map[String, Value]): String = {
-    // 'token' was renamed to 'device_token'. So, if 'device_token' not found => fallback to 'token'
-    notificationToken.getOrElse("device_token", notificationToken("token")).toString()
   }
 
   private def deleteIfExists(path: String)(implicit mcx: MessagingContext): Task[Boolean] =
