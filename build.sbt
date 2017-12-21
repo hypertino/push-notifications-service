@@ -2,7 +2,7 @@ scalaVersion := "2.11.12"
 
 lazy val `push-notifications-service` = project in file(".") enablePlugins Raml2Hyperbus settings (
   name := "push-notifications-service",
-  version := "0.2.2-SNAPSHOT",
+  version := "0.2.3-SNAPSHOT",
   organization := "com.hypertino",
   resolvers ++= Seq(
     Resolver.sonatypeRepo("public")
@@ -10,7 +10,7 @@ lazy val `push-notifications-service` = project in file(".") enablePlugins Raml2
   libraryDependencies ++= Seq(
     "com.hypertino" %% "hyperbus" % "0.5-SNAPSHOT",
     "com.hypertino" %% "hyperbus-t-inproc" % "0.5-SNAPSHOT" % "test",
-    "com.hypertino" %% "service-control" % "0.3.1",
+    "com.hypertino" %% "service-control" % "0.4.1",
     "com.hypertino" %% "service-config" % "0.2.3" % "test",
     "com.hypertino" %% "hyperstorage" % "0.6.3-SNAPSHOT" % "test",
 
