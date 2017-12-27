@@ -1,13 +1,19 @@
 package com.hypertino.services.pushnotifications
 
-import com.hypertino.binders.value.{Obj, Text}
-import com.hypertino.hyperbus.model.{Created, NoContent, NotFound}
+import com.hypertino.binders.value.Obj
+import com.hypertino.hyperbus.model.{Accepted, Created, EmptyBody, NoContent, NotFound, Ok}
+import com.hypertino.hyperstorage.api.ContentGet
 import com.hypertino.services.apns.api.{ApnsBadDeviceTokensFeedPost, BadToken}
 import com.hypertino.services.pushnotifications.api._
+import monix.eval.Task
+import org.scalamock.scalatest.MockFactory
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
-import org.scalatest.{FlatSpec, Matchers}
+import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
-class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Matchers with ScalaFutures with Eventually {
+class PushNotificationsServiceTest extends FlatSpec
+  with TestServiceBase
+  with MockFactory {
+
   start(
     services = Seq(
       new PushNotificationsService()
@@ -15,6 +21,13 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
   )
   import _hyperStorageMock._
   import so._
+
+  val serviceMockX: ServiceMock = new ServiceMock(_hyperbus)
+
+  override def beforeEach(): Unit = {
+    super.beforeEach()
+    serviceMockX.reset()
+  }
 
   "PushNotificationsService" should "save device token on TokenPut" in {
     val startBound = System.currentTimeMillis()
@@ -39,20 +52,23 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
     notificationToken.deviceToken shouldBe "test-device-token-1"
     notificationToken.userId shouldBe "user-1"
 
-    val (deviceTokenValue, revD) = hyperStorageContent(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1"))
+    _hyperbus.ask(ContentGet(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1")))
+      .map(_.body.content)
+      .runAsync
+      .futureValue shouldBe notificationTokenValue
 
-    revD shouldBe 1
-    deviceTokenValue.to[NotificationToken] shouldBe notificationToken
+    _hyperbus.ask(ContentGet(Db.notificationUserTokensItemPath("user-1", "test-token-a")))
+      .map(_.body.content)
+      .runAsync
+      .futureValue shouldBe notificationTokenValue
 
-    val (userTokenValue, revU) = hyperStorageContent(Db.notificationUserTokensItemPath("user-1", "test-token-a"))
-
-    revU shouldBe 1
-    userTokenValue.to[NotificationToken] shouldBe notificationToken
-
-    hyperStorageContent(Db.usersItemPath("user-1")) shouldBe (Obj.from("user_id" -> "user-1"), 1)
+    _hyperbus.ask(ContentGet(Db.usersItemPath("user-1")))
+      .map(_.body.content)
+      .runAsync
+      .futureValue shouldBe Obj.from("user_id" -> "user-1")
   }
 
-  "PushNotificationsService" should "delete device token on TokenDelete" in {
+  it should "delete device token on TokenDelete" in {
     _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
       platform = Platforms.IOS,
       appName = "com.test-app",
@@ -60,24 +76,24 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
       userId = "user-2"
     ))).runAsync.futureValue shouldBe a[Created[_]]
 
-    hyperStorageContent.get(Db.notificationTokenPath("test-token-a")) shouldBe a[Some[_]]
-    hyperStorageContent.get(Db.notificationUserTokensItemPath("user-2", "test-token-a")) shouldBe a[Some[_]]
-    hyperStorageContent.get(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1")) shouldBe a[Some[_]]
+    _hyperbus.ask(ContentGet(Db.notificationTokenPath("test-token-a"))).runAsync.futureValue shouldBe a[Ok[_]]
+    _hyperbus.ask(ContentGet(Db.notificationUserTokensItemPath("user-2", "test-token-a"))).runAsync.futureValue shouldBe a[Ok[_]]
+    _hyperbus.ask(ContentGet(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1"))).runAsync.futureValue shouldBe a[Ok[_]]
 
     _hyperbus.ask(TokenDelete("test-token-a"))
       .runAsync
       .futureValue shouldBe a[NoContent[_]]
 
-    hyperStorageContent.get(Db.notificationTokenPath("test-token-a")) shouldBe None
-    hyperStorageContent.get(Db.notificationUserTokensItemPath("user-2", "test-token-a")) shouldBe None
-    hyperStorageContent.get(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1")) shouldBe None
+    _hyperbus.ask(ContentGet(Db.notificationTokenPath("test-token-a"))).failed.runAsync.futureValue shouldBe a[NotFound[_]]
+    _hyperbus.ask(ContentGet(Db.notificationUserTokensItemPath("user-2", "test-token-a"))).failed.runAsync.futureValue shouldBe a[NotFound[_]]
+    _hyperbus.ask(ContentGet(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1"))).failed.runAsync.futureValue shouldBe a[NotFound[_]]
   }
 
-  "PushNotificationsService" should "fail on delete non-existing device token" in {
+  it should "fail on delete non-existing device token" in {
     _hyperbus.ask(TokenDelete("test-token-a")).runAsync.failed.futureValue shouldBe a[NotFound[_]]
   }
 
-  "PushNotificationsService" should "delete device token on ApnsBadDeviceTokensFeedPost" in {
+  it should "delete device token on ApnsBadDeviceTokensFeedPost" in {
     _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
       platform = Platforms.IOS,
       appName = "com.test-app",
@@ -85,20 +101,84 @@ class PushNotificationsServiceTest extends FlatSpec with TestServiceBase with Ma
       userId = "user-2"
     ))).runAsync.futureValue shouldBe a[Created[_]]
 
-    hyperStorageContent.get(Db.notificationTokenPath("test-token-a")) shouldBe a[Some[_]]
-    hyperStorageContent.get(Db.notificationUserTokensItemPath("user-2", "test-token-a")) shouldBe a[Some[_]]
-    hyperStorageContent.get(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1")) shouldBe a[Some[_]]
+    _hyperbus.ask(ContentGet(Db.notificationTokenPath("test-token-a"))).runAsync.futureValue shouldBe a[Ok[_]]
+    _hyperbus.ask(ContentGet(Db.notificationUserTokensItemPath("user-2", "test-token-a"))).runAsync.futureValue shouldBe a[Ok[_]]
+    _hyperbus.ask(ContentGet(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1"))).runAsync.futureValue shouldBe a[Ok[_]]
 
     _hyperbus.publish(ApnsBadDeviceTokensFeedPost(BadToken(deviceToken = "test-device-token-1", bundleId = "com.test-app")))
       .runAsync
       .futureValue
 
     eventually {
-      hyperStorageContent.get(Db.notificationTokenPath("test-token-a")) shouldBe None
-      hyperStorageContent.get(Db.notificationUserTokensItemPath("user-2", "test-token-a")) shouldBe None
-      hyperStorageContent.get(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1")) shouldBe None
+      _hyperbus.ask(ContentGet(Db.notificationTokenPath("test-token-a"))).failed.runAsync.futureValue shouldBe a[NotFound[_]]
+      _hyperbus.ask(ContentGet(Db.notificationUserTokensItemPath("user-2", "test-token-a"))).failed.runAsync.futureValue shouldBe a[NotFound[_]]
+      _hyperbus.ask(ContentGet(Db.notificationTokenPlatformTokenPath(Platforms.IOS, "test-device-token-1"))).failed.runAsync.futureValue shouldBe a[NotFound[_]]
     }
   }
 
-  // TODO: HyperStorageMock does not support collections and views
+  it should "send push notification to all devices" in {
+    _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
+      platform = Platforms.IOS,
+      appName = "com.test-app",
+      deviceToken = "test-device-token-1",
+      userId = "user-1"
+    ))).runAsync.futureValue shouldBe a[Created[_]]
+
+    _hyperbus.ask(TokenPut("test-token-b", new CreateNotificationToken(
+      platform = Platforms.IOS,
+      appName = "com.test-app",
+      deviceToken = "test-device-token-2",
+      userId = "user-2"
+    ))).runAsync.futureValue shouldBe a[Created[_]]
+
+    _hyperbus.ask(TokenPut("test-token-c", new CreateNotificationToken(
+      platform = Platforms.IOS,
+      appName = "com.test-app",
+      deviceToken = "test-device-token-3",
+      userId = "user-2"
+    ))).runAsync.futureValue shouldBe a[Created[_]]
+
+
+    val mockedMethods = mock[MockedMethods]
+    serviceMockX.mockHandler = Some(mockedMethods)
+
+    (mockedMethods.onApnsPost _).expects(*).returns(Task(Accepted(EmptyBody))).repeated(3)
+
+    _hyperbus.ask(NotificationsPost(new PushNotification(Notification("title", "subject"))))
+      .runAsync
+      .futureValue shouldBe a[Accepted[_]]
+  }
+
+  it should "send push notification to user's devices" in {
+    _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
+      platform = Platforms.IOS,
+      appName = "com.test-app",
+      deviceToken = "test-device-token-1",
+      userId = "user-1"
+    ))).runAsync.futureValue shouldBe a[Created[_]]
+
+    _hyperbus.ask(TokenPut("test-token-b", new CreateNotificationToken(
+      platform = Platforms.IOS,
+      appName = "com.test-app",
+      deviceToken = "test-device-token-2",
+      userId = "user-2"
+    ))).runAsync.futureValue shouldBe a[Created[_]]
+
+    _hyperbus.ask(TokenPut("test-token-c", new CreateNotificationToken(
+      platform = Platforms.IOS,
+      appName = "com.test-app",
+      deviceToken = "test-device-token-3",
+      userId = "user-2"
+    ))).runAsync.futureValue shouldBe a[Created[_]]
+
+
+    val mockedMethods = mock[MockedMethods]
+    serviceMockX.mockHandler = Some(mockedMethods)
+
+    (mockedMethods.onApnsPost _).expects(*).returns(Task(Accepted(EmptyBody))).repeated(2)
+
+    _hyperbus.ask(UserNotificationsPost("user-2", new PushNotification(Notification("title", "subject"))))
+      .runAsync
+      .futureValue shouldBe a[Accepted[_]]
+  }
 }

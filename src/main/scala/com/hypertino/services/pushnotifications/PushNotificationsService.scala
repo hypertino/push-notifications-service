@@ -89,13 +89,10 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
         }else {
           val payload = PayloadBuilder.buildApnsPayload(r.body)
           Task.gatherUnordered(tokens.map { token =>
-            hyperbus.ask(ContentGet(Db.notificationTokenPath(token("token_id").toString()))).flatMap { case Ok(tokenBody: DynamicBody, _) =>
-              val token = tokenBody.content.toMap
-              val appName = token("app_name").toString()
-              val deviceToken = token("device_token").toString()
+            val appName = token("app_name").toString()
+            val deviceToken = token("device_token").toString()
 
-              hyperbus.ask(ApnsPost(ApnsNotification(deviceToken, appName, payload)))
-            }
+            hyperbus.ask(ApnsPost(ApnsNotification(deviceToken, appName, payload)))
           })
         }
       }.map { _ =>

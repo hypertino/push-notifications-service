@@ -61,11 +61,5 @@ trait TestServiceBase extends TestSuite with Module with Subscribable
 
   override def beforeEach(): Unit = {
     _hyperStorageMock.reset()
-    Thread.sleep(1000)
-  }
-
-  override def afterEach(): Unit = {
-    //_hyperStorageMock.reset()
-    Thread.sleep(1000)
   }
 }

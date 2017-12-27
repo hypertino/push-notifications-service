@@ -15,7 +15,7 @@ class PayloadBuilderTest extends FlatSpec with Matchers {
     payload shouldBe """{"aps":{"alert":{"body":"body","title":"title"}}}"""
   }
 
-  "PayloadBuilder" should "build correct apns message with badge" in {
+  it should "build correct apns message with badge" in {
     val notification = Notification("title", "body", Some(10))
 
     val pushNotification = PushNotification(notification)
@@ -25,7 +25,7 @@ class PayloadBuilderTest extends FlatSpec with Matchers {
     payload shouldBe """{"aps":{"badge":10,"alert":{"body":"body","title":"title"}}}"""
   }
 
-  "PayloadBuilder" should "build correct apns message with badge and data" in {
+  it should "build correct apns message with badge and data" in {
     val notification = Notification("title", "body", Some(10))
 
     val data = Obj.from("text" -> "txt",
