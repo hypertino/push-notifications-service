@@ -116,7 +116,7 @@ class PushNotificationsServiceTest extends FlatSpec
     }
   }
 
-  it should "send push notification to all devices" in {
+  ignore should "send push notification to all devices" in {
     _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
       platform = Platforms.IOS,
       appName = "com.test-app",
@@ -149,7 +149,7 @@ class PushNotificationsServiceTest extends FlatSpec
       .futureValue shouldBe a[Accepted[_]]
   }
 
-  it should "send push notification to user's devices" in {
+  ignore should "send push notification to user's devices" in {
     _hyperbus.ask(TokenPut("test-token-a", new CreateNotificationToken(
       platform = Platforms.IOS,
       appName = "com.test-app",
