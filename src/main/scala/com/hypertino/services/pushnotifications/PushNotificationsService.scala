@@ -71,7 +71,7 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
       })
     }.map { _ =>
       Accepted(EmptyBody)
-    }.onErrorHandle { case NotFound(_) => Accepted(EmptyBody) }
+    }.onErrorRecover { case NotFound(_) => Accepted(EmptyBody) }
   }
 
   def onUserNotificationsPost(implicit r: UserNotificationsPost): Task[Accepted[EmptyBody]] = {
@@ -97,7 +97,7 @@ class PushNotificationsService(implicit val injector: Injector) extends Service 
         }
       }.map { _ =>
         Accepted(EmptyBody)
-      }.onErrorHandle { case NotFound(_) => Accepted(EmptyBody) }
+      }.onErrorRecover { case NotFound(_) => Accepted(EmptyBody) }
   }
 
   @groupName("push-notifications-service")
